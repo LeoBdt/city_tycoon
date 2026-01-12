@@ -1,24 +1,26 @@
 export const CONFIG = {
-    GRAVITY: -15, // Stronger gravity for faster settling
+    GRAVITY: -20,
     PLAYER_SPEED: 15,
     VOXEL_SIZE: 1,
-    DEFAULT_MAP_SIZE: 100,
 
     // Audio
     MASTER_VOLUME: 0.5,
 
     // Game
-    STARTING_MONEY: 10000,
+    STARTING_MONEY: 2000,
 
-    // Physics Limits - OPTIMIZED
+    // Physics Limits
     PHYSICS_STEPS: 1 / 60,
-    PHYSICS_SUBSTEPS: 3, // Reduced for performance
-    MAX_BODIES: 500, // Hard limit
-    SLEEP_SPEED_LIMIT: 0.5, // Sleep faster
-    SLEEP_TIME_LIMIT: 0.1, // Sleep very fast
+    PHYSICS_SUBSTEPS: 2,
+    MAX_BODIES: 400,
+    SLEEP_SPEED_LIMIT: 1.0,
+    SLEEP_TIME_LIMIT: 0.1,
 
     // Cleanup
-    VOXEL_LIFETIME: 3, // Seconds before destroyed voxel disappears
+    VOXEL_LIFETIME: 1.5,
+
+    // Gameplay
+    COMBO_WINDOW: 2.5,
 };
 
 export const TOOLS = {
@@ -27,66 +29,68 @@ export const TOOLS = {
     BUILDING: { id: 'BUILDING', name: 'Immeuble', price: 1500, type: 'build' },
     SKYSCRAPER: { id: 'SKYSCRAPER', name: 'Tour', price: 5000, type: 'build' },
     FACTORY: { id: 'FACTORY', name: 'Usine', price: 3000, type: 'build' },
+    GAS_STATION: { id: 'GAS_STATION', name: 'Essence', price: 2000, type: 'build' },
 
-    // Destruction - BALANCED
+    // Destruction
     BALL: { id: 'BALL', name: 'Boule', price: 0, type: 'destroy', force: 25, radius: 2 },
     MISSILE: { id: 'MISSILE', name: 'Missile', price: 100, type: 'destroy', force: 40, radius: 5 },
     NUKE: { id: 'NUKE', name: 'Nuke', price: 2000, type: 'destroy', force: 60, radius: 15 },
+    BLACK_HOLE: { id: 'BLACK_HOLE', name: 'Trou Noir', price: 5000, type: 'destroy', radius: 30, duration: 5 }
 };
 
 export const LEVELS = [
     {
         id: 1,
-        name: "Tutoriel",
-        objectiveDescription: "Détruisez 2 bâtiments.",
-        winCondition: { type: 'DESTRUCTION_COUNT', value: 2 },
+        name: "Tutoriel Explosif",
+        objectiveDescription: "Détruisez 3 bâtiments.",
+        winCondition: { type: 'DESTRUCTION_COUNT', value: 3 },
         budget: 1000,
         toolsAllowed: ['BALL', 'MISSILE'],
-        setup: { count: 3, type: 'MODERN' },
+        setup: { count: 8, type: 'MODERN' },
         stars: 0,
         unlocked: true
     },
     {
         id: 2,
-        name: "Quartier Résidentiel",
-        objectiveDescription: "Score cible : 3 000 pts.",
-        winCondition: { type: 'SCORE', value: 3000 },
+        name: "Réaction en Chaîne",
+        objectiveDescription: "Score cible : 10 000 pts.",
+        winCondition: { type: 'SCORE', value: 10000 },
         budget: 2000,
         toolsAllowed: ['BALL', 'MISSILE'],
-        setup: { count: 5, type: 'MODERN' },
+        setup: { count: 18, type: 'INDUSTRIAL' }, // More buildings for more chains
         stars: 0,
         unlocked: false
     },
     {
         id: 3,
-        name: "Zone Industrielle",
-        objectiveDescription: "Score cible : 8 000 pts.",
-        winCondition: { type: 'SCORE', value: 8000 },
-        budget: 5000,
-        toolsAllowed: ['BALL', 'MISSILE', 'NUKE'],
-        setup: { count: 8, type: 'INDUSTRIAL' },
+        name: "Singularité",
+        objectiveDescription: "Détruisez 25 bâtiments.",
+        winCondition: { type: 'DESTRUCTION_COUNT', value: 25 },
+        budget: 8000,
+        toolsAllowed: ['ALL'],
+        setup: { count: 30, type: 'MODERN' },
         stars: 0,
         unlocked: false
     },
     {
         id: 4,
-        name: "Centre-Ville",
-        objectiveDescription: "Détruisez 5 Gratte-ciels.",
-        winCondition: { type: 'DESTRUCTION_COUNT', value: 5 },
-        budget: 8000,
+        name: "Mégapole",
+        objectiveDescription: "Score cible : 50 000 pts.",
+        winCondition: { type: 'SCORE', value: 50000 },
+        budget: 15000,
         toolsAllowed: ['ALL'],
-        setup: { count: 10, type: 'MODERN' },
+        setup: { count: 40, type: 'MODERN' },
         stars: 0,
         unlocked: false
     },
     {
         id: 5,
-        name: "Chaos Final",
-        objectiveDescription: "Score cible : 20 000 pts.",
-        winCondition: { type: 'SCORE', value: 20000 },
-        budget: 15000,
+        name: "Apocalypse",
+        objectiveDescription: "Score cible : 200 000 pts.",
+        winCondition: { type: 'SCORE', value: 200000 },
+        budget: 30000,
         toolsAllowed: ['ALL'],
-        setup: { count: 12, type: 'ANCIENT' },
+        setup: { count: 50, type: 'ANCIENT' },
         stars: 0,
         unlocked: false
     }

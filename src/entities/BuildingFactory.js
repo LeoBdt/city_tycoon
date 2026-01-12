@@ -3,48 +3,24 @@ import * as CANNON from 'cannon-es';
 import { CONFIG } from '../utils/constants.js';
 
 /**
- * Procedurally generates buildings.
+ * Generates building data (physics bodies + visual info) 
+ * but does NOT create individual Meshes anymore optimized for InstancedMesh.
  */
 export class BuildingFactory {
-    static createVoxel(x, y, z, color, world, scene) {
-        const size = CONFIG.VOXEL_SIZE;
 
-        // 1. Mesh
-        const geo = new THREE.BoxGeometry(size, size, size);
-        const mat = new THREE.MeshStandardMaterial({
-            color: color,
-            roughness: 0.6,
-            metalness: 0.1
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x, y, z);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+    static generateBuilding(startX, startZ, type, theme, world) {
+        const voxelsData = [];
 
-        // 2. Physics Body
-        const shape = new CANNON.Box(new CANNON.Vec3(size / 2, size / 2, size / 2));
-        const body = new CANNON.Body({
-            mass: 5, // Heavy stone
-            position: new CANNON.Vec3(x, y, z),
-            shape: shape,
-        });
-
-        // Sleep to save CPU until disturbed
-        body.sleepSpeedLimit = CONFIG.SLEEP_SPEED_LIMIT;
-        body.sleepTimeLimit = CONFIG.SLEEP_TIME_LIMIT;
-
-        return { mesh, body, type: 'voxel', initialPos: new THREE.Vector3(x, y, z) };
-    }
-
-    static generateBuilding(startX, startZ, type, theme, world, scene) {
-        const voxels = [];
-
-        // Parameters based on Building Type
         let width = 4, depth = 4, height = 4;
+        let explosive = false;
 
         if (type === 'SKYSCRAPER') { height = 15; width = 5; depth = 5; }
         else if (type === 'FACTORY') { height = 6; width = 8; depth = 6; }
         else if (type === 'HOUSE') { height = 4; width = 5; depth = 5; }
+        else if (type === 'GAS_STATION') {
+            height = 3; width = 6; depth = 4;
+            explosive = true;
+        }
 
         const colors = theme.palette;
         const windowColor = theme.window;
@@ -53,29 +29,50 @@ export class BuildingFactory {
             for (let x = 0; x < width; x++) {
                 for (let z = 0; z < depth; z++) {
 
-                    // Logic for hollow buildings, windows, etc.
                     const isEdge = x === 0 || x === width - 1 || z === 0 || z === depth - 1;
                     const isFloor = y === 0 || y % 4 === 0;
 
-                    // Simple architectural variety
-                    if (!isEdge && !isFloor && Math.random() > 0.1) continue; // Hollow inside
+                    if (!isEdge && !isFloor && Math.random() > 0.1) continue;
 
                     const realX = startX + (x * CONFIG.VOXEL_SIZE);
                     const realY = 0.5 + (y * CONFIG.VOXEL_SIZE);
                     const realZ = startZ + (z * CONFIG.VOXEL_SIZE);
 
-                    let color = colors[Math.floor(Math.random() * colors.length)];
-                    if (isEdge && y > 0 && Math.random() > 0.6) color = windowColor;
+                    let colorHex = colors[Math.floor(Math.random() * colors.length)];
 
-                    const voxel = this.createVoxel(realX, realY, realZ, color, world, scene);
-                    voxels.push(voxel);
+                    if (type === 'GAS_STATION') {
+                        colorHex = (y % 2 === 0) ? 0xff0000 : 0xffffff;
+                    }
+                    else if (isEdge && y > 0 && Math.random() > 0.6) {
+                        colorHex = windowColor;
+                    }
 
-                    scene.add(voxel.mesh);
-                    world.addBody(voxel.body);
+                    const isVoxelExplosive = (type === 'GAS_STATION' && y === 0);
+
+                    // Create Physics Body Only
+                    const shape = new CANNON.Box(new CANNON.Vec3(CONFIG.VOXEL_SIZE / 2, CONFIG.VOXEL_SIZE / 2, CONFIG.VOXEL_SIZE / 2));
+                    const body = new CANNON.Body({
+                        mass: 5,
+                        position: new CANNON.Vec3(realX, realY, realZ),
+                        shape: shape,
+                    });
+
+                    body.sleepSpeedLimit = CONFIG.SLEEP_SPEED_LIMIT;
+                    body.sleepTimeLimit = CONFIG.SLEEP_TIME_LIMIT;
+                    world.addBody(body);
+
+                    voxelsData.push({
+                        body: body,
+                        color: new THREE.Color(colorHex),
+                        isExplosive: isVoxelExplosive,
+                        type: 'voxel',
+                        scored: false,
+                        active: true // Used for InstancedMesh logic
+                    });
                 }
             }
         }
 
-        return voxels;
+        return voxelsData;
     }
 }
