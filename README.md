@@ -52,4 +52,4 @@ Ce projet utilise `Three.js` pour le rendu et `Cannon-es` pour la physique. Pour
 *   **Rendu Optimisé** : Désactivation des ombres complexes et de l'antialiasing pour privilégier le nombre d'objets.
 
 ---
-*Fait avec ❤️ par Leo Bidot & Antigravity (Google DeepMind)*
+*Fait avec ❤️ par Leo Bidot
