@@ -1,13 +1,284 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>city_tycoon</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="City Tycoon - Construisez et détruisez votre ville dans ce jeu 3D immersif" />
+  <title>🏙️ City Tycoon - Le Jeu de Construction</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap"
+    rel="stylesheet">
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <!-- Splash Screen / Menu Principal -->
+  <div id="main-menu">
+    <div class="menu-background"></div>
+    <div class="menu-content">
+      <h1 class="game-title">
+        <span class="title-icon">🏙️</span>
+        <span class="title-text">CITY TYCOON</span>
+      </h1>
+      <p class="game-subtitle">Construisez • Détruisez • Dominez</p>
+
+      <div class="menu-buttons">
+        <button id="btn-play" class="menu-btn primary">
+          <span class="btn-icon">▶</span>
+          <span>JOUER</span>
+        </button>
+        <button id="btn-levels" class="menu-btn">
+          <span class="btn-icon">🎮</span>
+          <span>NIVEAUX</span>
+        </button>
+      </div>
+
+      <div class="controls-hint">
+        <p>🖱️ Clic gauche pour interagir • Molette pour zoomer • Clic droit pour tourner</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel Sélection de Niveau -->
+  <div id="level-select-panel" class="hidden">
+    <div class="panel-backdrop"></div>
+    <div class="panel-content level-panel">
+      <button class="close-btn" id="close-levels">✕</button>
+      <h2 class="panel-title">🎮 Sélection du Niveau</h2>
+
+      <div class="levels-grid" id="levels-container">
+        <!-- Les niveaux seront générés dynamiquement -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel Options -->
+  <div id="settings-panel" class="hidden">
+    <div class="panel-backdrop"></div>
+    <div class="panel-content settings-panel">
+      <button class="close-btn" id="close-settings">✕</button>
+      <h2 class="panel-title">⚙️ Options</h2>
+
+      <div class="settings-group">
+        <h3>Difficulté</h3>
+        <div class="difficulty-selector">
+          <button class="diff-btn" data-difficulty="easy">😊 Facile</button>
+          <button class="diff-btn active" data-difficulty="normal">😐 Normal</button>
+          <button class="diff-btn" data-difficulty="hard">😈 Difficile</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Graphiques</h3>
+        <div class="setting-row">
+          <label>Qualité des ombres</label>
+          <select id="shadow-quality">
+            <option value="low">Basse</option>
+            <option value="medium" selected>Moyenne</option>
+            <option value="high">Haute</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label>Densité de la ville</label>
+          <input type="range" id="city-density" min="3" max="20" value="8">
+          <span id="density-display">8</span>
+        </div>
+        <div class="setting-row">
+          <label>Effets de particules</label>
+          <input type="checkbox" id="particles-enabled" checked>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Audio</h3>
+        <div class="setting-row">
+          <label>Volume général</label>
+          <input type="range" id="master-volume" min="0" max="100" value="70">
+          <span id="volume-display">70%</span>
+        </div>
+        <div class="setting-row">
+          <label>Effets sonores</label>
+          <input type="checkbox" id="sfx-enabled" checked>
+        </div>
+      </div>
+
+      <button id="apply-settings" class="menu-btn primary">Appliquer</button>
+    </div>
+  </div>
+
+  <!-- Interface de Jeu (In-Game UI) -->
+  <div id="game-ui" class="hidden">
+    <!-- Header avec Score et Infos -->
+    <div id="game-header">
+      <div id="score-section">
+        <div class="score-label">SCORE</div>
+        <div class="score-value" id="score">0</div>
+        <div class="score-multiplier" id="multiplier">x1</div>
+      </div>
+
+      <div id="level-info">
+        <div class="level-name" id="current-level">Niveau 1</div>
+        <div class="level-objective" id="objective">Objectif: Détruire 5 bâtiments</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+
+      <div id="resources-section">
+        <div class="resource">
+          <span class="resource-icon">💰</span>
+          <span class="resource-value" id="money">10000</span>
+        </div>
+        <div class="resource">
+          <span class="resource-icon">⭐</span>
+          <span class="resource-value" id="stars">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar avec outils de construction/destruction -->
+    <div id="toolbar">
+      <div class="toolbar-section">
+        <div class="toolbar-title">🔨 Construction</div>
+        <div class="tool-buttons">
+          <button class="tool-btn" data-tool="house" title="Maison - 500$">
+            <span class="tool-icon">🏠</span>
+            <span class="tool-name">Maison</span>
+            <span class="tool-price">500$</span>
+          </button>
+          <button class="tool-btn" data-tool="building" title="Immeuble - 1500$">
+            <span class="tool-icon">🏢</span>
+            <span class="tool-name">Immeuble</span>
+            <span class="tool-price">1500$</span>
+          </button>
+          <button class="tool-btn" data-tool="skyscraper" title="Gratte-ciel - 5000$">
+            <span class="tool-icon">🏙️</span>
+            <span class="tool-name">Tour</span>
+            <span class="tool-price">5000$</span>
+          </button>
+          <button class="tool-btn" data-tool="factory" title="Usine - 3000$">
+            <span class="tool-icon">🏭</span>
+            <span class="tool-name">Usine</span>
+            <span class="tool-price">3000$</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-section">
+        <div class="toolbar-title">💥 Destruction</div>
+        <div class="tool-buttons">
+          <button class="tool-btn destructive" data-tool="ball" title="Boule de démolition - Gratuit">
+            <span class="tool-icon">🥎</span>
+            <span class="tool-name">Boule</span>
+            <span class="tool-price">FREE</span>
+          </button>
+          <button class="tool-btn destructive" data-tool="missile" title="Missile - 100$">
+            <span class="tool-icon">🚀</span>
+            <span class="tool-name">Missile</span>
+            <span class="tool-price">100$</span>
+          </button>
+          <button class="tool-btn destructive special" data-tool="nuke" title="Bombe nucléaire - 2000$">
+            <span class="tool-icon">☢️</span>
+            <span class="tool-name">Nuke</span>
+            <span class="tool-price">2000$</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel d'info sur l'objet sélectionné -->
+    <div id="selection-panel" class="hidden">
+      <h3 id="selection-title">🏠 Maison</h3>
+      <div class="selection-stats">
+        <div class="stat-row">
+          <span>Santé:</span>
+          <div class="stat-bar">
+            <div class="stat-fill health" id="selection-health"></div>
+          </div>
+        </div>
+        <div class="stat-row">
+          <span>Valeur:</span>
+          <span id="selection-value">500$</span>
+        </div>
+      </div>
+      <div class="selection-actions">
+        <button id="btn-repair" class="action-btn">🔧 Réparer</button>
+        <button id="btn-upgrade" class="action-btn">⬆️ Améliorer</button>
+        <button id="btn-demolish" class="action-btn danger">💣 Démolir</button>
+      </div>
+    </div>
+
+    <!-- Mini-map -->
+    <div id="minimap">
+      <canvas id="minimap-canvas" width="150" height="150"></canvas>
+    </div>
+
+    <!-- Combo Display -->
+    <div id="combo-display" class="hidden">
+      <div class="combo-value" id="combo-value">x2</div>
+      <div class="combo-label">COMBO!</div>
+    </div>
+
+    <!-- Bouton Pause -->
+    <button id="btn-pause" class="icon-btn">⏸️</button>
+
+    <!-- FPS Counter -->
+    <div id="fps-counter">60 FPS</div>
+  </div>
+
+  <!-- Menu Pause -->
+  <div id="pause-menu" class="hidden">
+    <div class="panel-backdrop"></div>
+    <div class="panel-content pause-panel">
+      <h2>⏸️ Pause</h2>
+      <button id="btn-resume" class="menu-btn primary">▶ Reprendre</button>
+      <button id="btn-restart" class="menu-btn">🔄 Recommencer</button>
+      <button id="btn-quit" class="menu-btn">🏠 Menu Principal</button>
+    </div>
+  </div>
+
+  <!-- Level Complete -->
+  <div id="level-complete" class="hidden">
+    <div class="panel-backdrop"></div>
+    <div class="panel-content victory-panel">
+      <h2>🎉 Niveau Terminé!</h2>
+      <div class="victory-stats">
+        <div class="stat">
+          <span class="stat-label">Score</span>
+          <span class="stat-value" id="final-score">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Temps</span>
+          <span class="stat-value" id="final-time">0:00</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Étoiles</span>
+          <span class="stat-value stars" id="final-stars">⭐⭐⭐</span>
+        </div>
+      </div>
+      <div class="victory-buttons">
+        <button id="btn-next-level" class="menu-btn primary">➡️ Niveau Suivant</button>
+        <button id="btn-replay" class="menu-btn">🔄 Rejouer</button>
+        <button id="btn-menu" class="menu-btn">🏠 Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flash Overlay pour effets -->
+  <div id="flash-overlay"></div>
+
+  <!-- Crosshair -->
+  <div id="crosshair" class="hidden">+</div>
+
+  <!-- Tooltip -->
+  <div id="tooltip" class="hidden"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>
