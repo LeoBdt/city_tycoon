@@ -44,7 +44,7 @@ export const LEVELS = [
         name: "Tutoriel Explosif",
         objectiveDescription: "Détruisez 3 bâtiments.",
         winCondition: { type: 'DESTRUCTION_COUNT', value: 3 },
-        budget: 1000,
+        budget: 2000,
         toolsAllowed: ['BALL', 'MISSILE'],
         setup: { count: 8, type: 'MODERN' },
         stars: 0,
@@ -55,7 +55,7 @@ export const LEVELS = [
         name: "Réaction en Chaîne",
         objectiveDescription: "Score cible : 10 000 pts.",
         winCondition: { type: 'SCORE', value: 10000 },
-        budget: 2000,
+        budget: 3000,
         toolsAllowed: ['BALL', 'MISSILE'],
         setup: { count: 18, type: 'INDUSTRIAL' }, // More buildings for more chains
         stars: 0,
@@ -66,7 +66,7 @@ export const LEVELS = [
         name: "Singularité",
         objectiveDescription: "Détruisez 25 bâtiments.",
         winCondition: { type: 'DESTRUCTION_COUNT', value: 25 },
-        budget: 8000,
+        budget: 15000, // Enough for 3 Black Holes
         toolsAllowed: ['ALL'],
         setup: { count: 30, type: 'MODERN' },
         stars: 0,

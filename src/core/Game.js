@@ -25,10 +25,10 @@ export class Game {
         // Instanced Rendering
         this.maxInstances = 10000;
         this.instancedMesh = null;
-        this.voxels = []; // Stores { body, color, active, etc. }
-        this.dummy = new THREE.Object3D(); // Helper for matrix calc
+        this.voxels = [];
+        this.dummy = new THREE.Object3D();
 
-        this.objects = []; // Non-voxel objects (projectiles, black holes)
+        this.objects = [];
 
         this.state = {
             score: 0,
@@ -66,7 +66,7 @@ export class Game {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(1); // Performance
+        this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = false;
         document.getElementById('app').appendChild(this.renderer.domElement);
 
@@ -83,7 +83,7 @@ export class Game {
         this.scene.add(sun);
 
         this.createGround();
-        this.initInstancedMesh(); // NEW
+        this.initInstancedMesh();
 
         window.addEventListener('resize', () => this.onResize());
     }
@@ -102,16 +102,28 @@ export class Game {
 
     initInstancedMesh() {
         const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const material = new THREE.MeshLambertMaterial({ color: 0xffffff }); // Base color white to multiply with instance color
+        const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
         this.instancedMesh = new THREE.InstancedMesh(geometry, material, this.maxInstances);
         this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.scene.add(this.instancedMesh);
     }
 
-    loadLevel(levelId) {
+    async loadLevel(levelId) {
+        this.ui.showLoading(); // SHOW LOADER
+
+        // Slight delay to let UI render
+        await new Promise(r => setTimeout(r, 50));
+
         this.audio.init();
+        if (this.audio.ctx.state === 'running' && !this.audio.isPlayingMusic) {
+            this.audio.startMusic();
+        }
+
         const levelData = LEVELS.find(l => l.id === levelId);
-        if (!levelData) return;
+        if (!levelData) {
+            this.ui.hideLoading();
+            return;
+        }
 
         this.state.level = levelId;
         this.state.score = 0;
@@ -128,12 +140,16 @@ export class Game {
 
         this.clearWorld();
         this.applyTheme(THEMES[levelData.setup.type] || THEMES.MODERN);
-        this.populateLevel(levelData);
+
+        // ASYNC POPULATE
+        await this.populateLevel(levelData);
 
         document.getElementById('current-level').innerText = levelData.name;
         document.getElementById('objective').innerText = levelData.objectiveDescription;
         document.getElementById('progress-fill').style.width = '0%';
         this.updateComboUI();
+
+        this.ui.hideLoading(); // HIDE LOADER
     }
 
     applyTheme(theme) {
@@ -141,8 +157,7 @@ export class Game {
         this.scene.fog = new THREE.Fog(theme.sky, 30, 90);
     }
 
-    populateLevel(data) {
-        // Safe Grid Spawning Logic
+    async populateLevel(data) {
         const gridSize = 8;
         const usedPos = [];
         let count = 0;
@@ -150,6 +165,10 @@ export class Game {
 
         while (count < data.setup.count && attempts < 200) {
             attempts++;
+
+            // Yield every 2 buildings to keep UI responsive
+            if (count % 2 === 0) await new Promise(r => setTimeout(r, 0));
+
             const gx = Math.floor((Math.random() * 10) - 5);
             const gz = Math.floor((Math.random() * 10) - 5);
             const key = `${gx},${gz}`;
@@ -168,62 +187,68 @@ export class Game {
 
             const type = types[Math.floor(Math.random() * types.length)];
 
-            // Generate Data
             const newVoxels = BuildingFactory.generateBuilding(realX, realZ, type, THEMES[data.setup.type], this.physics.world);
 
-            // Add to our list
             newVoxels.forEach(v => {
                 if (this.voxels.length < this.maxInstances) {
                     this.voxels.push(v);
                     this.state.totalVoxels++;
-
-                    // Set initial color
                     const index = this.voxels.length - 1;
                     this.instancedMesh.setColorAt(index, v.color);
+
+                    // FORCE INITIAL POSITION
+                    this.dummy.position.copy(v.body.position);
+                    this.dummy.quaternion.copy(v.body.quaternion);
+                    this.dummy.scale.set(1, 1, 1);
+                    this.dummy.updateMatrix();
+                    this.instancedMesh.setMatrixAt(index, this.dummy.matrix);
                 }
             });
-        }
 
-        // Notify instance mesh that colors changed
-        this.instancedMesh.instanceColor.needsUpdate = true;
+            // Update visual progress
+            this.instancedMesh.instanceColor.needsUpdate = true;
+            this.instancedMesh.count = this.voxels.length;
+            this.instancedMesh.instanceMatrix.needsUpdate = true;
+        }
     }
 
     clearWorld() {
-        // Clear Physics
         for (let i = this.voxels.length - 1; i >= 0; i--) {
             if (this.voxels[i].body) this.physics.removeBody(this.voxels[i].body);
         }
         this.voxels = [];
 
-        // Clear Objects
         for (let i = this.objects.length - 1; i >= 0; i--) {
             const obj = this.objects[i];
             if (obj.body) this.physics.removeBody(obj.body);
             if (obj.mesh) this.scene.remove(obj.mesh);
         }
         this.objects = [];
+        this.instancedMesh.count = 0;
 
-        // Reset Instance Mesh
-        this.instancedMesh.count = 0; // Hide all
-
-        // Clear particles
         if (this.particles) {
             this.particles.particles.forEach(p => this.scene.remove(p.mesh));
             this.particles.particles = [];
         }
     }
 
+    // ... (rest is unchanged) ...
     handleLeftClick() {
+        if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended') {
+            this.audio.ctx.resume();
+            this.audio.startMusic();
+        } else if (this.audio && !this.audio.isPlayingMusic) {
+            this.audio.startMusic();
+        }
+
         if (!this.state.isRunning || this.state.isPaused) return;
 
-        // Raycasting against InstancedMesh
         const intersection = this.getInstancedIntersection();
         let hitPoint = null;
 
         if (intersection) {
             hitPoint = intersection.point;
         } else {
-            // Plane fallback
             const raycaster = this.input.getRaycaster();
             const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
             const target = new THREE.Vector3();
@@ -238,7 +263,6 @@ export class Game {
         const raycaster = this.input.getRaycaster();
         const intersects = raycaster.intersectObject(this.instancedMesh);
         if (intersects.length > 0) {
-            // Filter only active instances
             for (let i = 0; i < intersects.length; i++) {
                 const instanceId = intersects[i].instanceId;
                 if (this.voxels[instanceId] && this.voxels[instanceId].active) {
@@ -253,7 +277,11 @@ export class Game {
         const tool = TOOLS[toolId];
         if (!tool) return;
 
-        if (tool.price > 0 && this.state.money < tool.price) return;
+        if (tool.price > 0 && this.state.money < tool.price) {
+            this.audio.playError();
+            this.ui.showFloatingText("Pas assez d'argent!", window.innerWidth / 2, window.innerHeight / 2, 'destruction');
+            return;
+        }
         if (tool.price > 0) this.state.money -= tool.price;
 
         if (tool.id === 'BLACK_HOLE') {
@@ -261,28 +289,34 @@ export class Game {
         } else if (tool.type === 'destroy') {
             this.spawnProjectile(tool, this.camera.position, position);
         } else if (tool.type === 'build') {
-            // Building logic for instanced mesh? 
-            // Currently complex to add dynamic buildings to full buffer.
-            // Simplification: Can only build if buffer not full.
             const x = Math.round(position.x);
             const z = Math.round(position.z);
 
-            // Check limit
             if (this.voxels.length + 100 > this.maxInstances) {
+                this.audio.playError();
                 this.ui.showFloatingText("Limite atteinte!", window.innerWidth / 2, window.innerHeight / 2, 'destruction');
                 return;
             }
 
-            const startIdx = this.voxels.length;
             const newVoxels = BuildingFactory.generateBuilding(x, z, toolId, THEMES.MODERN, this.physics.world);
 
             newVoxels.forEach(v => {
                 this.voxels.push(v);
-                this.instancedMesh.setColorAt(this.voxels.length - 1, v.color);
+                const index = this.voxels.length - 1;
+                this.instancedMesh.setColorAt(index, v.color);
+
+                // FORCE INITIAL POSITION
+                this.dummy.position.copy(v.body.position);
+                this.dummy.quaternion.copy(v.body.quaternion);
+                this.dummy.scale.set(1, 1, 1);
+                this.dummy.updateMatrix();
+                this.instancedMesh.setMatrixAt(index, this.dummy.matrix);
+
                 this.state.totalVoxels++;
             });
             this.instancedMesh.instanceColor.needsUpdate = true;
-            this.audio.playTone(400, 0.1, 'sine');
+            this.instancedMesh.instanceMatrix.needsUpdate = true; // Don't forget this!
+            this.audio.playBuild();
         }
     }
 
@@ -293,7 +327,6 @@ export class Game {
         mesh.position.copy(position);
         mesh.position.y = 5;
         this.scene.add(mesh);
-
         const ringGeo = new THREE.RingGeometry(3, 5, 32);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0x8800ff, side: THREE.DoubleSide });
         const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -348,7 +381,6 @@ export class Game {
 
         const expPos = new CANNON.Vec3(pos.x, pos.y, pos.z);
 
-        // Iterate over VOXELS (Instanced)
         for (let i = 0; i < this.voxels.length; i++) {
             const obj = this.voxels[i];
             if (!obj.active) continue;
@@ -366,7 +398,7 @@ export class Game {
                 obj.body.applyImpulse(impulse, obj.body.position);
 
                 if (!obj.scored) {
-                    this.state.money += 1;
+                    this.state.money += 3; // BOOSTED
                     this.addScore(1);
                     obj.scored = true;
 
@@ -458,13 +490,11 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // BLACK HOLE (Adapted for InstancedMesh)
     applyBlackHole(center, radius, force, dt) {
         const holePos = center;
         for (let i = 0; i < this.voxels.length; i++) {
             const obj = this.voxels[i];
             if (!obj.active || !obj.body) continue;
-
             const dist = obj.body.position.distanceTo(holePos);
             if (dist < radius) {
                 obj.body.wakeUp();
@@ -475,7 +505,7 @@ export class Game {
                 obj.body.applyImpulse(dir, obj.body.position);
                 if (dist < 2.0) {
                     if (!obj.scored) { this.addScore(5); obj.scored = true; }
-                    obj.body.position.y = -100; // Kill logic will handle it
+                    obj.body.position.y = -100;
                 }
             }
         }
@@ -500,45 +530,44 @@ export class Game {
                 }
             }
 
-            // --- INSTANCED MESH UPDATE ---
             this.instancedMesh.count = this.voxels.length;
             let dirty = false;
 
             for (let i = 0; i < this.voxels.length; i++) {
                 const voxel = this.voxels[i];
                 if (!voxel.active) {
-                    this.dummy.scale.set(0, 0, 0); // Hide
-                    this.dummy.updateMatrix();
-                    this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                    // Already hidden, skip
                     continue;
                 }
 
-                // Sync Physics -> Graphics
-                this.dummy.position.copy(voxel.body.position);
-                this.dummy.quaternion.copy(voxel.body.quaternion);
-                this.dummy.scale.set(1, 1, 1);
-                this.dummy.updateMatrix();
+                // OPTIMIZATION: Only update Graphics if Physics moved (is not sleeping)
+                // This drastically reduces CPU->GPU bandwidth usage.
+                if (voxel.body.sleepState !== CANNON.Body.SLEEPING) {
+                    this.dummy.position.copy(voxel.body.position);
+                    this.dummy.quaternion.copy(voxel.body.quaternion);
+                    this.dummy.scale.set(1, 1, 1);
+                    this.dummy.updateMatrix();
 
-                this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-                dirty = true;
+                    this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                    dirty = true;
+                }
 
-                // Cleanup Logic
-                // 1) Scored + Near ground
                 if (voxel.scored && voxel.body.position.y < 1.0) {
                     voxel.active = false;
                     this.physics.removeBody(voxel.body);
                     this.dummy.scale.set(0, 0, 0);
                     this.dummy.updateMatrix();
                     this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                    dirty = true;
                     continue;
                 }
-                // 2) Fell too low
                 if (voxel.body.position.y < -5) {
                     voxel.active = false;
                     this.physics.removeBody(voxel.body);
                     this.dummy.scale.set(0, 0, 0);
                     this.dummy.updateMatrix();
                     this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                    dirty = true;
                     continue;
                 }
             }
@@ -547,7 +576,6 @@ export class Game {
                 this.instancedMesh.instanceMatrix.needsUpdate = true;
             }
 
-            // Projectile / BlackHole Update
             for (let i = this.objects.length - 1; i >= 0; i--) {
                 const obj = this.objects[i];
                 if (!obj.mesh || !obj.body && obj.type !== 'blackhole') continue;

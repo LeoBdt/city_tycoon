@@ -5,25 +5,18 @@ export class PhysicsWorld {
     constructor() {
         this.world = new CANNON.World();
 
-        // Optimized broadphase
+        // PROFESSIONAL OPTIMIZATION: SAP Broadphase (Sweep and Prune)
+        // Checks collisions along axes instead of checking everything against everything.
+        // Massive performance boost for many objects.
         this.world.broadphase = new CANNON.SAPBroadphase(this.world);
-        this.world.broadphase.useBoundingBoxes = true;
+
+        // Tuning
         this.world.allowSleep = true;
-
         this.world.gravity.set(0, CONFIG.GRAVITY, 0);
+
+        // Default solver settings for stability/performance balance
         this.world.solver.iterations = 10;
-
-        this.materials = {
-            default: new CANNON.Material('default'),
-            ground: new CANNON.Material('ground')
-        };
-
-        const contactMat = new CANNON.ContactMaterial(
-            this.materials.default,
-            this.materials.default,
-            { friction: 0.5, restitution: 0.1 }
-        );
-        this.world.addContactMaterial(contactMat);
+        this.world.solver.tolerance = 0.001;
     }
 
     addBody(body) {
@@ -35,6 +28,8 @@ export class PhysicsWorld {
     }
 
     step(dt) {
-        this.world.step(CONFIG.PHYSICS_STEPS, dt, 3);
+        // Fixed timestep for consistent simulation stability
+        // Interpolation handled in Game loop if needed, but simple step is fine here
+        this.world.step(CONFIG.PHYSICS_STEPS, dt, CONFIG.PHYSICS_SUBSTEPS);
     }
 }

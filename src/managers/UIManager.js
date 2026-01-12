@@ -22,16 +22,22 @@ export class UIManager {
     }
 
     bindEvents() {
+        // Universal Hover Sound
+        document.querySelectorAll('button, .level-card').forEach(el => {
+            el.addEventListener('mouseenter', () => this.game?.audio?.playUIHover());
+        });
+
         // Menu Buttons
         document.getElementById('btn-play')?.addEventListener('click', () => {
+            this.game?.audio?.playUIClick();
             this.showPanel('levels');
         });
 
-        document.getElementById('btn-levels')?.addEventListener('click', () => this.showPanel('levels'));
-        document.getElementById('close-levels')?.addEventListener('click', () => this.hidePanel('levels'));
+        document.getElementById('btn-levels')?.addEventListener('click', () => { this.game?.audio?.playUIClick(); this.showPanel('levels'); });
+        document.getElementById('close-levels')?.addEventListener('click', () => { this.game?.audio?.playUIClick(); this.hidePanel('levels'); });
 
-        document.getElementById('btn-pause')?.addEventListener('click', () => this.game.togglePause());
-        document.getElementById('btn-resume')?.addEventListener('click', () => this.game.togglePause());
+        document.getElementById('btn-pause')?.addEventListener('click', () => { this.game?.audio?.playUIClick(); this.game.togglePause(); });
+        document.getElementById('btn-resume')?.addEventListener('click', () => { this.game?.audio?.playUIClick(); this.game.togglePause(); });
         document.getElementById('btn-menu')?.addEventListener('click', () => window.location.reload());
 
         // Tool Selection
@@ -39,7 +45,10 @@ export class UIManager {
             const toolId = btn.dataset.tool?.toUpperCase();
             if (!toolId) return;
 
+            btn.addEventListener('mouseenter', () => this.game?.audio?.playUIHover());
+
             btn.addEventListener('click', (e) => {
+                this.game.audio.playUIClick();
                 this.game.setTool(toolId);
                 this.elements.tools.forEach(b => b.classList.remove('active'));
                 e.currentTarget.classList.add('active');
@@ -73,7 +82,6 @@ export class UIManager {
 
             card.addEventListener('click', () => {
                 if (!isUnlocked) {
-                    // Show locked message
                     this.showFloatingText("Niveau verrouillé!", window.innerWidth / 2, window.innerHeight / 2, 'destruction');
                     return;
                 }
@@ -88,7 +96,6 @@ export class UIManager {
         Object.values(this.elements.panels).forEach(p => p?.classList.add('hidden'));
         this.elements.panels[name]?.classList.remove('hidden');
 
-        // Refresh level cards when opening levels panel
         if (name === 'levels') {
             this.generateLevelCards();
         }
@@ -98,40 +105,13 @@ export class UIManager {
         this.elements.panels[name]?.classList.add('hidden');
         if (!this.game.state?.isRunning) {
             this.elements.panels.main?.classList.remove('hidden');
+        } else {
+            this.elements.panels.game?.classList.remove('hidden');
         }
     }
 
     showGameUI() {
-        Object.values(this.elements.panels).forEach(p => p?.classList.add('hidden'));
-        this.elements.panels.game?.classList.remove('hidden');
-    }
-
-    updateHUD(score, money, fps) {
-        if (this.elements.score) this.elements.score.innerText = Math.floor(score);
-        if (this.elements.money) this.elements.money.innerText = Math.floor(money) + "$";
-        if (this.elements.fps) this.elements.fps.innerText = fps + " FPS";
-
-        // Dim tools if not enough money
-        this.elements.tools.forEach(btn => {
-            const toolId = btn.dataset.tool?.toUpperCase();
-            if (!toolId) return;
-            const toolData = TOOLS[toolId];
-            if (toolData && toolData.price > money) {
-                btn.classList.add('disabled');
-            } else {
-                btn.classList.remove('disabled');
-            }
-        });
-    }
-
-    showFloatingText(text, x, y, type = 'points') {
-        const el = document.createElement('div');
-        el.className = `floating-text ${type}`;
-        el.innerText = text;
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 1200);
+        this.showPanel('game');
     }
 
     togglePauseMenu(isPaused) {
@@ -140,5 +120,44 @@ export class UIManager {
         } else {
             this.elements.panels.pause?.classList.add('hidden');
         }
+    }
+
+    updateHUD(score, money, fps) {
+        if (this.elements.score) this.elements.score.innerText = score;
+        if (this.elements.money) this.elements.money.innerText = money;
+        if (this.elements.fps) this.elements.fps.innerText = fps;
+    }
+
+    showFloatingText(text, x, y, type = 'score') {
+        const el = document.createElement('div');
+        el.className = `floating-text ${type}`;
+        el.innerText = text;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        document.body.appendChild(el);
+
+        setTimeout(() => {
+            el.style.transform = 'translate(-50%, -100px)';
+            el.style.opacity = '0';
+        }, 50);
+
+        setTimeout(() => el.remove(), 1000);
+    }
+
+    showLoading() {
+        let loader = document.getElementById('loading-overlay');
+        if (!loader) {
+            loader = document.createElement('div');
+            loader.id = 'loading-overlay';
+            loader.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);color:#0ff;display:flex;justify-content:center;align-items:center;font-size:2rem;z-index:9999;font-family:"Orbitron",sans-serif; text-shadow: 0 0 10px #0ff;';
+            loader.innerText = 'CONSTRUCTION DE LA VILLE...';
+            document.body.appendChild(loader);
+        }
+        loader.style.display = 'flex';
+    }
+
+    hideLoading() {
+        const loader = document.getElementById('loading-overlay');
+        if (loader) loader.style.display = 'none';
     }
 }
