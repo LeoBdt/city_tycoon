@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import { PhysicsWorld } from './PhysicsWorld.js';
+import { getPhysics } from './PhysicsWorld.js';
 import { UIManager } from '../managers/UIManager.js';
 import { InputManager } from '../managers/InputManager.js';
 import { SoundManager } from '../managers/SoundManager.js';
@@ -18,17 +17,21 @@ export class Game {
         this.renderer = null;
         this.controls = null;
 
-        this.physics = new PhysicsWorld();
+        this.physics = null;
         this.audio = new SoundManager();
         this.particles = null;
 
         // Instanced Rendering
-        this.maxInstances = 10000;
+        this.maxInstances = 15000;
         this.instancedMesh = null;
         this.voxels = [];
         this.dummy = new THREE.Object3D();
 
         this.objects = [];
+
+        // FPS Counter
+        this.lastFrameTime = performance.now();
+        this.fpsSmooth = 60;
 
         this.state = {
             score: 0,
@@ -52,6 +55,9 @@ export class Game {
     }
 
     async init() {
+        // Init Rapier first (async WASM load)
+        this.physics = await getPhysics();
+
         this.initThree();
         this.particles = new ParticleSystem(this.scene);
         this.input = new InputManager(this.camera, this.renderer.domElement);
@@ -64,7 +70,10 @@ export class Game {
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
         this.camera.position.set(40, 40, 40);
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: false });
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: false,
+            powerPreference: 'high-performance'
+        });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = false;
@@ -95,9 +104,7 @@ export class Game {
         mesh.rotation.x = -Math.PI / 2;
         this.scene.add(mesh);
 
-        const groundShape = new CANNON.Box(new CANNON.Vec3(100, 5, 100));
-        const groundBody = new CANNON.Body({ mass: 0, position: new CANNON.Vec3(0, -5, 0), shape: groundShape });
-        this.physics.addBody(groundBody);
+        this.physics.createGround();
     }
 
     initInstancedMesh() {
@@ -109,9 +116,7 @@ export class Game {
     }
 
     async loadLevel(levelId) {
-        this.ui.showLoading(); // SHOW LOADER
-
-        // Slight delay to let UI render
+        this.ui.showLoading();
         await new Promise(r => setTimeout(r, 50));
 
         this.audio.init();
@@ -133,7 +138,6 @@ export class Game {
         this.state.elapsedTime = 0;
         this.state.isRunning = true;
         this.state.isPaused = false;
-
         this.state.comboCount = 0;
         this.state.comboTimer = 0;
         this.state.comboMultiplier = 1;
@@ -141,7 +145,6 @@ export class Game {
         this.clearWorld();
         this.applyTheme(THEMES[levelData.setup.type] || THEMES.MODERN);
 
-        // ASYNC POPULATE
         await this.populateLevel(levelData);
 
         document.getElementById('current-level').innerText = levelData.name;
@@ -149,7 +152,7 @@ export class Game {
         document.getElementById('progress-fill').style.width = '0%';
         this.updateComboUI();
 
-        this.ui.hideLoading(); // HIDE LOADER
+        this.ui.hideLoading();
     }
 
     applyTheme(theme) {
@@ -166,7 +169,6 @@ export class Game {
         while (count < data.setup.count && attempts < 200) {
             attempts++;
 
-            // Yield every 2 buildings to keep UI responsive
             if (count % 2 === 0) await new Promise(r => setTimeout(r, 0));
 
             const gx = Math.floor((Math.random() * 10) - 5);
@@ -187,7 +189,8 @@ export class Game {
 
             const type = types[Math.floor(Math.random() * types.length)];
 
-            const newVoxels = BuildingFactory.generateBuilding(realX, realZ, type, THEMES[data.setup.type], this.physics.world);
+            // No physics bodies created here - just visual data
+            const newVoxels = BuildingFactory.generateBuilding(realX, realZ, type, THEMES[data.setup.type]);
 
             newVoxels.forEach(v => {
                 if (this.voxels.length < this.maxInstances) {
@@ -196,16 +199,14 @@ export class Game {
                     const index = this.voxels.length - 1;
                     this.instancedMesh.setColorAt(index, v.color);
 
-                    // FORCE INITIAL POSITION
-                    this.dummy.position.copy(v.body.position);
-                    this.dummy.quaternion.copy(v.body.quaternion);
+                    this.dummy.position.set(v.position.x, v.position.y, v.position.z);
+                    this.dummy.quaternion.set(0, 0, 0, 1);
                     this.dummy.scale.set(1, 1, 1);
                     this.dummy.updateMatrix();
                     this.instancedMesh.setMatrixAt(index, this.dummy.matrix);
                 }
             });
 
-            // Update visual progress
             this.instancedMesh.instanceColor.needsUpdate = true;
             this.instancedMesh.count = this.voxels.length;
             this.instancedMesh.instanceMatrix.needsUpdate = true;
@@ -213,8 +214,11 @@ export class Game {
     }
 
     clearWorld() {
+        // Remove all physics bodies
         for (let i = this.voxels.length - 1; i >= 0; i--) {
-            if (this.voxels[i].body) this.physics.removeBody(this.voxels[i].body);
+            if (this.voxels[i].body) {
+                this.physics.removeBody(this.voxels[i].body);
+            }
         }
         this.voxels = [];
 
@@ -232,7 +236,6 @@ export class Game {
         }
     }
 
-    // ... (rest is unchanged) ...
     handleLeftClick() {
         if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended') {
             this.audio.ctx.resume();
@@ -298,16 +301,15 @@ export class Game {
                 return;
             }
 
-            const newVoxels = BuildingFactory.generateBuilding(x, z, toolId, THEMES.MODERN, this.physics.world);
+            const newVoxels = BuildingFactory.generateBuilding(x, z, toolId, THEMES.MODERN);
 
             newVoxels.forEach(v => {
                 this.voxels.push(v);
                 const index = this.voxels.length - 1;
                 this.instancedMesh.setColorAt(index, v.color);
 
-                // FORCE INITIAL POSITION
-                this.dummy.position.copy(v.body.position);
-                this.dummy.quaternion.copy(v.body.quaternion);
+                this.dummy.position.set(v.position.x, v.position.y, v.position.z);
+                this.dummy.quaternion.set(0, 0, 0, 1);
                 this.dummy.scale.set(1, 1, 1);
                 this.dummy.updateMatrix();
                 this.instancedMesh.setMatrixAt(index, this.dummy.matrix);
@@ -315,7 +317,8 @@ export class Game {
                 this.state.totalVoxels++;
             });
             this.instancedMesh.instanceColor.needsUpdate = true;
-            this.instancedMesh.instanceMatrix.needsUpdate = true; // Don't forget this!
+            this.instancedMesh.instanceMatrix.needsUpdate = true;
+            this.instancedMesh.count = this.voxels.length;
             this.audio.playBuild();
         }
     }
@@ -327,6 +330,7 @@ export class Game {
         mesh.position.copy(position);
         mesh.position.y = 5;
         this.scene.add(mesh);
+
         const ringGeo = new THREE.RingGeometry(3, 5, 32);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0x8800ff, side: THREE.DoubleSide });
         const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -354,24 +358,18 @@ export class Game {
         mesh.position.copy(spawnPos);
         this.scene.add(mesh);
 
-        const shape = new CANNON.Sphere(0.5);
-        const body = new CANNON.Body({ mass: 2, shape, position: new CANNON.Vec3(spawnPos.x, spawnPos.y, spawnPos.z) });
-        body.velocity.set(dir.x * 40, dir.y * 40, dir.z * 40);
-        this.physics.addBody(body);
+        // Create physics body for projectile
+        const body = this.physics.createRigidBody(
+            { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
+            true
+        );
+        this.physics.createBoxCollider(body, { x: 0.5, y: 0.5, z: 0.5 });
+        this.physics.applyImpulse(body, { x: dir.x * 80, y: dir.y * 80, z: dir.z * 80 });
 
-        const projectile = { mesh, body, type: 'projectile', tool, life: 5 };
+        const projectile = { mesh, body, type: 'projectile', tool, life: 5, exploded: false };
         this.objects.push(projectile);
 
         this.audio.playShoot();
-
-        let exploded = false;
-        body.addEventListener('collide', () => {
-            if (!exploded) {
-                exploded = true;
-                this.explode(body.position, tool.force, tool.radius);
-                projectile.life = 0;
-            }
-        });
     }
 
     explode(pos, force, radius) {
@@ -379,35 +377,57 @@ export class Game {
         if (radius > 10) this.particles.spawn(pos, 30, 'FIRE');
         else this.particles.spawn(pos, 10, 'SMOKE');
 
-        const expPos = new CANNON.Vec3(pos.x, pos.y, pos.z);
+        const expPos = { x: pos.x, y: pos.y, z: pos.z };
+        const affectedVoxels = []; // Track voxels that got physics
 
         for (let i = 0; i < this.voxels.length; i++) {
-            const obj = this.voxels[i];
-            if (!obj.active) continue;
+            const voxel = this.voxels[i];
+            if (!voxel.active) continue;
 
-            const dist = obj.body.position.distanceTo(expPos);
+            // Get voxel position (from physics or stored position)
+            let voxelPos;
+            if (voxel.hasPhysics && voxel.body) {
+                voxelPos = this.physics.getPosition(voxel.body);
+            } else {
+                voxelPos = voxel.position;
+            }
+
+            const dx = voxelPos.x - expPos.x;
+            const dy = voxelPos.y - expPos.y;
+            const dz = voxelPos.z - expPos.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
             if (dist < radius) {
-                obj.body.wakeUp();
-                const impulse = new CANNON.Vec3(
-                    (obj.body.position.x - expPos.x),
-                    (obj.body.position.y - expPos.y) + 3,
-                    (obj.body.position.z - expPos.z)
-                );
-                impulse.normalize();
-                impulse.scale(force * (1 - dist / radius), impulse);
-                obj.body.applyImpulse(impulse, obj.body.position);
+                // Create physics body on-demand if not already created
+                if (!voxel.hasPhysics) {
+                    voxel.body = this.physics.createRigidBody(voxel.position, true);
+                    this.physics.createBoxCollider(voxel.body, { x: 0.5, y: 0.5, z: 0.5 });
+                    voxel.hasPhysics = true;
+                    affectedVoxels.push(voxel);
+                }
 
-                if (!obj.scored) {
-                    this.state.money += 3; // BOOSTED
+                // Apply explosion impulse
+                this.physics.wakeUp(voxel.body);
+                const strength = force * (1 - dist / radius);
+                const impulse = {
+                    x: (dx / (dist + 0.1)) * strength,
+                    y: ((dy + 3) / (dist + 0.1)) * strength,
+                    z: (dz / (dist + 0.1)) * strength
+                };
+                this.physics.applyImpulse(voxel.body, impulse);
+
+                if (!voxel.scored) {
+                    this.state.money += 3;
                     this.addScore(1);
-                    obj.scored = true;
+                    voxel.scored = true;
 
-                    if (obj.isExplosive && !obj.hasExploded) {
-                        obj.hasExploded = true;
+                    if (voxel.isExplosive && !voxel.hasExploded) {
+                        voxel.hasExploded = true;
                         setTimeout(() => {
-                            if (obj.active) {
-                                this.explode(obj.body.position, 40, 10);
-                                this.particles.spawn(obj.body.position, 20, 'FIRE');
+                            if (voxel.active && voxel.body) {
+                                const p = this.physics.getPosition(voxel.body);
+                                this.explode(p, 40, 10);
+                                this.particles.spawn(p, 20, 'FIRE');
                             }
                         }, 150 + Math.random() * 200);
                     }
@@ -415,9 +435,52 @@ export class Game {
             }
         }
 
+        // PROPAGATION VERTICALE : activer les voxels AU-DESSUS des voxels touchés
+        // pour qu'ils s'effondrent naturellement
+        this.propagatePhysicsUpward(affectedVoxels);
+
         if (radius > 10) {
             const flash = document.getElementById('flash-overlay');
             if (flash) { flash.style.opacity = 0.3; setTimeout(() => flash.style.opacity = 0, 80); }
+        }
+    }
+
+    // Propage la physique vers les voxels au-dessus pour créer l'effondrement
+    propagatePhysicsUpward(affectedVoxels) {
+        const toActivate = new Set();
+        const threshold = 1.5; // Distance XZ max pour considérer un voxel comme "au-dessus"
+
+        for (const affected of affectedVoxels) {
+            const basePos = affected.position;
+
+            for (let i = 0; i < this.voxels.length; i++) {
+                const voxel = this.voxels[i];
+                if (!voxel.active || voxel.hasPhysics) continue;
+
+                const vPos = voxel.position;
+
+                // Vérifier si ce voxel est AU-DESSUS (y plus grand) et aligné en XZ
+                if (vPos.y > basePos.y) {
+                    const dxz = Math.sqrt(
+                        (vPos.x - basePos.x) ** 2 +
+                        (vPos.z - basePos.z) ** 2
+                    );
+
+                    if (dxz < threshold) {
+                        toActivate.add(i);
+                    }
+                }
+            }
+        }
+
+        // Activer tous les voxels marqués
+        for (const idx of toActivate) {
+            const voxel = this.voxels[idx];
+            if (!voxel.hasPhysics) {
+                voxel.body = this.physics.createRigidBody(voxel.position, true);
+                this.physics.createBoxCollider(voxel.body, { x: 0.5, y: 0.5, z: 0.5 });
+                voxel.hasPhysics = true;
+            }
         }
     }
 
@@ -478,12 +541,24 @@ export class Game {
         document.getElementById('final-time').innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
         document.getElementById('final-stars').innerText = '⭐⭐⭐';
         this.ui.showPanel('victory');
-        document.getElementById('btn-next-level').onclick = () => { if (this.state.level < LEVELS.length) { this.loadLevel(this.state.level + 1); this.ui.showGameUI(); } };
-        document.getElementById('btn-replay').onclick = () => { this.loadLevel(this.state.level); this.ui.showGameUI(); };
+        document.getElementById('btn-next-level').onclick = () => {
+            if (this.state.level < LEVELS.length) {
+                this.loadLevel(this.state.level + 1);
+                this.ui.showGameUI();
+            }
+        };
+        document.getElementById('btn-replay').onclick = () => {
+            this.loadLevel(this.state.level);
+            this.ui.showGameUI();
+        };
     }
 
     setTool(toolId) { this.state.tool = toolId; }
-    togglePause() { this.state.isPaused = !this.state.isPaused; this.ui.togglePauseMenu(this.state.isPaused); }
+    togglePause() {
+        this.state.isPaused = !this.state.isPaused;
+        this.ui.togglePauseMenu(this.state.isPaused);
+    }
+
     onResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
@@ -491,21 +566,50 @@ export class Game {
     }
 
     applyBlackHole(center, radius, force, dt) {
-        const holePos = center;
         for (let i = 0; i < this.voxels.length; i++) {
-            const obj = this.voxels[i];
-            if (!obj.active || !obj.body) continue;
-            const dist = obj.body.position.distanceTo(holePos);
+            const voxel = this.voxels[i];
+            if (!voxel.active) continue;
+
+            let voxelPos;
+            if (voxel.hasPhysics && voxel.body) {
+                voxelPos = this.physics.getPosition(voxel.body);
+            } else {
+                voxelPos = voxel.position;
+            }
+
+            const dx = center.x - voxelPos.x;
+            const dy = center.y - voxelPos.y;
+            const dz = center.z - voxelPos.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
             if (dist < radius) {
-                obj.body.wakeUp();
-                const dir = new CANNON.Vec3(holePos.x - obj.body.position.x, holePos.y - obj.body.position.y, holePos.z - obj.body.position.z);
-                dir.normalize();
-                const pull = force * (1 / (dist + 1));
-                dir.scale(pull * dt, dir);
-                obj.body.applyImpulse(dir, obj.body.position);
+                // Create physics on-demand
+                if (!voxel.hasPhysics) {
+                    voxel.body = this.physics.createRigidBody(voxel.position, true);
+                    this.physics.createBoxCollider(voxel.body, { x: 0.5, y: 0.5, z: 0.5 });
+                    voxel.hasPhysics = true;
+                }
+
+                this.physics.wakeUp(voxel.body);
+                const pull = force * (1 / (dist + 1)) * dt;
+                const len = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
+                this.physics.applyImpulse(voxel.body, {
+                    x: (dx / len) * pull,
+                    y: (dy / len) * pull,
+                    z: (dz / len) * pull
+                });
+
                 if (dist < 2.0) {
-                    if (!obj.scored) { this.addScore(5); obj.scored = true; }
-                    obj.body.position.y = -100;
+                    if (!voxel.scored) {
+                        this.addScore(5);
+                        voxel.scored = true;
+                    }
+                    voxel.position.y = -100;
+                    if (voxel.body) {
+                        this.physics.removeBody(voxel.body);
+                        voxel.body = null;
+                    }
+                    voxel.active = false;
                 }
             }
         }
@@ -517,7 +621,7 @@ export class Game {
 
         if (this.state.isRunning && !this.state.isPaused) {
             this.state.elapsedTime += dt;
-            this.physics.step(dt);
+            this.physics.step();
             this.particles.update(dt);
 
             if (this.state.comboTimer > 0) {
@@ -530,45 +634,88 @@ export class Game {
                 }
             }
 
+            // Check projectile collisions
+            for (let i = this.objects.length - 1; i >= 0; i--) {
+                const obj = this.objects[i];
+                if (obj.type === 'projectile' && obj.body && !obj.exploded) {
+                    const pos = this.physics.getPosition(obj.body);
+
+                    // Check if projectile hit ground or voxel
+                    if (pos.y < 1.0) {
+                        obj.exploded = true;
+                        this.explode(pos, obj.tool.force, obj.tool.radius);
+                        obj.life = 0;
+                    } else {
+                        // Check collision with voxels in radius
+                        for (let j = 0; j < this.voxels.length; j++) {
+                            const voxel = this.voxels[j];
+                            if (!voxel.active) continue;
+
+                            const vp = voxel.hasPhysics ? this.physics.getPosition(voxel.body) : voxel.position;
+                            const dx = pos.x - vp.x;
+                            const dy = pos.y - vp.y;
+                            const dz = pos.z - vp.z;
+                            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                            if (dist < 1.5) {
+                                obj.exploded = true;
+                                this.explode(pos, obj.tool.force, obj.tool.radius);
+                                obj.life = 0;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             this.instancedMesh.count = this.voxels.length;
             let dirty = false;
 
             for (let i = 0; i < this.voxels.length; i++) {
                 const voxel = this.voxels[i];
-                if (!voxel.active) {
-                    // Already hidden, skip
-                    continue;
-                }
+                if (!voxel.active) continue;
 
-                // OPTIMIZATION: Only update Graphics if Physics moved (is not sleeping)
-                // This drastically reduces CPU->GPU bandwidth usage.
-                if (voxel.body.sleepState !== CANNON.Body.SLEEPING) {
-                    this.dummy.position.copy(voxel.body.position);
-                    this.dummy.quaternion.copy(voxel.body.quaternion);
-                    this.dummy.scale.set(1, 1, 1);
-                    this.dummy.updateMatrix();
+                // Only update if has physics and not sleeping
+                if (voxel.hasPhysics && voxel.body) {
+                    if (!this.physics.isSleeping(voxel.body)) {
+                        const pos = this.physics.getPosition(voxel.body);
+                        const rot = this.physics.getRotation(voxel.body);
 
-                    this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-                    dirty = true;
-                }
+                        this.dummy.position.set(pos.x, pos.y, pos.z);
+                        this.dummy.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+                        this.dummy.scale.set(1, 1, 1);
+                        this.dummy.updateMatrix();
+                        this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                        dirty = true;
 
-                if (voxel.scored && voxel.body.position.y < 1.0) {
-                    voxel.active = false;
-                    this.physics.removeBody(voxel.body);
-                    this.dummy.scale.set(0, 0, 0);
-                    this.dummy.updateMatrix();
-                    this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-                    dirty = true;
-                    continue;
-                }
-                if (voxel.body.position.y < -5) {
-                    voxel.active = false;
-                    this.physics.removeBody(voxel.body);
-                    this.dummy.scale.set(0, 0, 0);
-                    this.dummy.updateMatrix();
-                    this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
-                    dirty = true;
-                    continue;
+                        // Update stored position
+                        voxel.position.x = pos.x;
+                        voxel.position.y = pos.y;
+                        voxel.position.z = pos.z;
+                    }
+
+                    // Remove if below ground
+                    if (voxel.scored && voxel.position.y < 1.0) {
+                        voxel.active = false;
+                        this.physics.removeBody(voxel.body);
+                        voxel.body = null;
+                        this.dummy.scale.set(0, 0, 0);
+                        this.dummy.updateMatrix();
+                        this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                        dirty = true;
+                        continue;
+                    }
+
+                    if (voxel.position.y < -5) {
+                        voxel.active = false;
+                        this.physics.removeBody(voxel.body);
+                        voxel.body = null;
+                        this.dummy.scale.set(0, 0, 0);
+                        this.dummy.updateMatrix();
+                        this.instancedMesh.setMatrixAt(i, this.dummy.matrix);
+                        dirty = true;
+                        continue;
+                    }
                 }
             }
 
@@ -576,13 +723,20 @@ export class Game {
                 this.instancedMesh.instanceMatrix.needsUpdate = true;
             }
 
+            // Update other objects (projectiles, black holes)
             for (let i = this.objects.length - 1; i >= 0; i--) {
                 const obj = this.objects[i];
-                if (!obj.mesh || !obj.body && obj.type !== 'blackhole') continue;
 
-                if (obj.body) {
-                    obj.mesh.position.copy(obj.body.position);
-                    obj.mesh.quaternion.copy(obj.body.quaternion);
+                if (obj.type === 'projectile' && obj.body) {
+                    const pos = this.physics.getPosition(obj.body);
+                    obj.mesh.position.set(pos.x, pos.y, pos.z);
+
+                    obj.life -= dt;
+                    if (obj.life <= 0) {
+                        this.scene.remove(obj.mesh);
+                        this.physics.removeBody(obj.body);
+                        this.objects.splice(i, 1);
+                    }
                 }
 
                 if (obj.type === 'blackhole') {
@@ -592,21 +746,21 @@ export class Game {
                     if (obj.life <= 0) {
                         this.scene.remove(obj.mesh);
                         this.objects.splice(i, 1);
-                        continue;
-                    }
-                }
-                if (obj.type === 'projectile') {
-                    obj.life -= dt;
-                    if (obj.life <= 0) {
-                        this.scene.remove(obj.mesh);
-                        this.physics.removeBody(obj.body);
-                        this.objects.splice(i, 1);
                     }
                 }
             }
         }
+
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
-        this.ui.updateHUD(this.state.score, this.state.money, Math.round(1 / Math.max(dt, 0.001)));
+
+        // FPS calculation
+        const now = performance.now();
+        const realDt = (now - this.lastFrameTime) / 1000;
+        this.lastFrameTime = now;
+        const currentFps = 1 / Math.max(realDt, 0.001);
+        this.fpsSmooth = this.fpsSmooth * 0.9 + currentFps * 0.1;
+
+        this.ui.updateHUD(this.state.score, this.state.money, Math.round(this.fpsSmooth));
     }
 }

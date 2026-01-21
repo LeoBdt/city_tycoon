@@ -11,10 +11,10 @@ export const CONFIG = {
 
     // Physics Limits
     PHYSICS_STEPS: 1 / 60,
-    PHYSICS_SUBSTEPS: 2,
-    MAX_BODIES: 400,
-    SLEEP_SPEED_LIMIT: 1.0,
-    SLEEP_TIME_LIMIT: 0.1,
+    PHYSICS_SUBSTEPS: 1, // Réduit de 2 à 1 pour gain de perf
+    MAX_BODIES: 300,
+    SLEEP_SPEED_LIMIT: 0.5, // Plus sensible = dort plus vite
+    SLEEP_TIME_LIMIT: 0.3, // Augmenté pour moins de réveils
 
     // Cleanup
     VOXEL_LIFETIME: 1.5,
@@ -79,7 +79,7 @@ export const LEVELS = [
         winCondition: { type: 'SCORE', value: 50000 },
         budget: 15000,
         toolsAllowed: ['ALL'],
-        setup: { count: 40, type: 'MODERN' },
+        setup: { count: 25, type: 'MODERN' }, // Réduit pour 60fps
         stars: 0,
         unlocked: false
     },
@@ -90,7 +90,7 @@ export const LEVELS = [
         winCondition: { type: 'SCORE', value: 200000 },
         budget: 30000,
         toolsAllowed: ['ALL'],
-        setup: { count: 50, type: 'ANCIENT' },
+        setup: { count: 30, type: 'ANCIENT' }, // Réduit pour 60fps
         stars: 0,
         unlocked: false
     }

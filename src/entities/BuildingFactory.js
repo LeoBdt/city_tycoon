@@ -1,14 +1,13 @@
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { CONFIG } from '../utils/constants.js';
 
 /**
- * Generates building data (physics bodies + visual info) 
- * but does NOT create individual Meshes anymore optimized for InstancedMesh.
+ * Generates building data for InstancedMesh rendering.
+ * Physics bodies are created lazily on-demand when buildings are hit.
  */
 export class BuildingFactory {
 
-    static generateBuilding(startX, startZ, type, theme, world) {
+    static generateBuilding(startX, startZ, type, theme) {
         const voxelsData = [];
 
         let width = 4, depth = 4, height = 4;
@@ -49,25 +48,15 @@ export class BuildingFactory {
 
                     const isVoxelExplosive = (type === 'GAS_STATION' && y === 0);
 
-                    // Create Physics Body Only
-                    const shape = new CANNON.Box(new CANNON.Vec3(CONFIG.VOXEL_SIZE / 2, CONFIG.VOXEL_SIZE / 2, CONFIG.VOXEL_SIZE / 2));
-                    const body = new CANNON.Body({
-                        mass: 5,
-                        position: new CANNON.Vec3(realX, realY, realZ),
-                        shape: shape,
-                    });
-
-                    body.sleepSpeedLimit = CONFIG.SLEEP_SPEED_LIMIT;
-                    body.sleepTimeLimit = CONFIG.SLEEP_TIME_LIMIT;
-                    world.addBody(body);
-
                     voxelsData.push({
-                        body: body,
+                        position: { x: realX, y: realY, z: realZ },
                         color: new THREE.Color(colorHex),
                         isExplosive: isVoxelExplosive,
                         type: 'voxel',
                         scored: false,
-                        active: true // Used for InstancedMesh logic
+                        active: true,
+                        hasPhysics: false, // Physics créée on-demand
+                        body: null
                     });
                 }
             }
